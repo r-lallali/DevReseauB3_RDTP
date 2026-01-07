@@ -1,4 +1,5 @@
 import socket
+import client
 from common.protocol import *
 
 
@@ -28,9 +29,34 @@ class ChatServer:
     def __init__(self):
         self.clients = {}
 
+    def broadcast_user_connected(self, pseudo: str, exclude=None):
+        """
+        Envoie une notification à tous les clients qu'un nouvel utilisateur s'est connecté.
+        
+        Args:
+            pseudo: Le pseudo du nouvel utilisateur
+            exclude: Le client à exclure de la notification (le nouvel utilisateur lui-même)
+        """
+        payload = pack_string(pseudo)
+        message = pack_message(USER_CONNECTED, payload)
+        
+        for client in self.clients.values():
+            if client != exclude and client.is_authenticated():
+                try:
+                    client.sock.send(message)
+                except Exception as e:
+                    # Gérer les erreurs d'envoi silencieusement
+                    print(f"Erreur lors de l'envoi à {client.pseudo}: {e}")
+
     def handle_client(self, sock):
         """
         Traite un client tant que la connexion TCP est ouverte.
+        
+        Cette méthode prend possession de la socket et la fermera automatiquement
+        à la fin du traitement, que ce soit en cas de déconnexion normale ou d'erreur.
+        
+        Args:
+            sock: Socket du client (sera fermée par cette méthode)
         """
 
         client = ClientContext(sock)
@@ -66,6 +92,7 @@ class ChatServer:
                         break
 
                     if pseudo in self.clients:
+                        print(f"[DEBUG] Pseudo '{pseudo}' déjà utilisé. Clients actuels: {list(self.clients.keys())}")
                         sock.send(pack_message(
                             LOGIN_ERR,
                             pack_string("Pseudo déjà utilisé")
@@ -77,13 +104,16 @@ class ChatServer:
                     self.clients[pseudo] = client
 
                     sock.send(pack_message(LOGIN_OK))
+                    
+                    # Notifier tous les autres clients de la connexion
+                    self.broadcast_user_connected(pseudo, exclude=client)
                     continue
 
                 # --------------------
                 # États suivants (non implémentés)
                 # --------------------
                 sock.send(pack_message(
-                    GENERIC_ERR,
+                    ERROR,
                     pack_string("Action non supportée")
                 ))
 

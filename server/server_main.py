@@ -10,10 +10,7 @@ Il ne contient pas de logique métier : celle-ci reste dans ChatServer.
 """
 
 import socket
-# Ensure running the script directly can import package modules
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import threading
 from server.server import ChatServer
 
 # Adresse et port d'écoute du serveur
@@ -44,9 +41,13 @@ def main():
             client_sock, client_addr = sock.accept()
             print(f"Connexion de {client_addr}")
 
-            # Transmet le socket au serveur pour traitement
-            # Ici, le serveur est minimal et ne gère qu'un message
-            server.handle_client(client_sock)
+            # Lancer le traitement du client dans un thread séparé
+            thread = threading.Thread(
+                target=server.handle_client,
+                args=(client_sock,),
+                daemon=True
+            )
+            thread.start()
 
     finally:
         # Fermeture propre de la socket

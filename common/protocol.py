@@ -22,11 +22,13 @@ LEAVE = 0x12
 MSG = 0x20
 MSG_BROADCAST = 0x21
 ERROR = 0x30
+USER_CONNECTED = 0x40
 PING = 0xF0
 PONG = 0xF1
 
 # Constants
 MAX_PSEUDO_LEN = 32
+SOCKET_TIMEOUT = 2.0  # timeout en secondes pour les opérations socket
 
 STATE_CONNECTED = "CONNECTÉ"        # Connexion TCP établie, en attente de LOGIN
 STATE_AUTHENTICATED = "AUTHENTIFIÉ"  # LOGIN réussi, peut faire JOIN

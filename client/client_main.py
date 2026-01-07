@@ -12,7 +12,9 @@ Il ne contient pas de logique de protocole, qui est dans client.py.
 """
 
 import socket
-from client.client import login
+import threading
+import sys
+from client.client import login, listen_server
 from common.protocol import LOGIN_OK
 
 # Adresse du serveur
@@ -33,10 +35,22 @@ def main():
         sock.connect((SERVER_IP, SERVER_PORT))
 
         # Pseudo utilisé pour la connexion
-        pseudo = "Donald"
+        if len(sys.argv) > 1:
+            pseudo = sys.argv[1]
+        else:
+            pseudo = "Donald"
 
         # Phase de login
-        msg_type, _ = login(sock, pseudo)
+        msg_type, payload = login(sock, pseudo)
+
+        print(f"[DEBUG] msg_type reçu: {msg_type} (LOGIN_OK={LOGIN_OK})")
+        if msg_type != LOGIN_OK and payload:
+            from common.protocol import unpack_string
+            try:
+                raison = unpack_string(payload)
+                print(f"[DEBUG] Raison de l'erreur: {raison}")
+            except Exception as e:
+                print(f"[DEBUG] Erreur lors du décodage: {e}")
 
         if msg_type != LOGIN_OK:
             print("Échec de la connexion")
@@ -44,8 +58,20 @@ def main():
 
         print("Connexion réussie")
 
-        # À ce stade, la connexion TCP reste ouverte.
-        # Les actions suivantes (JOIN, MSG, etc.) seront ajoutées ici.
+        # Lancer l'écoute du serveur dans un thread séparé
+        listen_thread = threading.Thread(
+            target=listen_server,
+            args=(sock,),
+            daemon=True
+        )
+        listen_thread.start()
+        
+        # Garder le programme actif
+        print("En attente de messages... (Ctrl+C pour quitter)")
+        listen_thread.join()
+        
+    except KeyboardInterrupt:
+        print("\nDéconnexion...")
 
     finally:
         # Fermeture propre de la connexion
