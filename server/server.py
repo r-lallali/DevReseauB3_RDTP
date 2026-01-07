@@ -1,5 +1,5 @@
 import socket
-from .protocol import *
+from common.protocol import *
 
 
 class ClientContext:

@@ -10,7 +10,7 @@ Il ne contient pas de logique métier : celle-ci reste dans ChatServer.
 """
 
 import socket
-from chat.server import ChatServer
+from .server import ChatServer
 
 # Adresse et port d'écoute du serveur
 HOST = "0.0.0.0"  # toutes les interfaces

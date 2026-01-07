@@ -12,7 +12,7 @@ Il ne contient pas de logique de protocole, qui est dans client.py.
 """
 
 import socket
-from chat.client import login
+from .client import login
 
 # Adresse du serveur
 SERVER_IP = "127.0.0.1"

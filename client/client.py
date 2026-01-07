@@ -1,5 +1,5 @@
 import socket
-from .protocol import *
+from common.protocol import *
 
 
 def login(sock, pseudo: str):

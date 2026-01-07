@@ -10,9 +10,9 @@ client / serveur sans réseau réel.
 import unittest
 import socket
 import threading
-from .server import ChatServer
-from .client import login
-from .protocol import *
+from server.server import ChatServer
+from client.client import login
+from common.protocol import *
 
 
 class TestLogin(unittest.TestCase):
