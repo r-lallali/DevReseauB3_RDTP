@@ -15,6 +15,7 @@ Ce document décrit les **principes généraux** du projet et reste valable ind�
 * Faciliter les tests automatisés
 * Fournir une base de départ lisible, maintenable et évolutive
 
+
 ---
 
 ## 📁 Organisation générale
