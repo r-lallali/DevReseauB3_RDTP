@@ -28,6 +28,10 @@ PONG = 0xF1
 # Constants
 MAX_PSEUDO_LEN = 50
 
+STATE_CONNECTED = "CONNECTÉ"        # Connexion TCP établie, en attente de LOGIN
+STATE_AUTHENTICATED = "AUTHENTIFIÉ"  # LOGIN réussi, peut faire JOIN
+STATE_IN_ROOM = "DANS_SALON"         # Dans un salon, peut envoyer MSG ou LEAVE
+
 
 def pack_int(value: int) -> bytes:
     """

@@ -5,12 +5,26 @@ from common.protocol import *
 class ClientContext:
     """
     Représente l'état d'un client connecté.
+    
+    Chaque client a un état qui détermine ce qu'il peut faire :
+    - CONNECTÉ : peut seulement envoyer LOGIN
+    - AUTHENTIFIÉ : peut envoyer JOIN
+    - DANS_SALON : peut envoyer MSG, LEAVE
     """
 
     def __init__(self, sock):
         self.sock = sock
         self.pseudo = None
-        self.authenticated = False
+        self.state = STATE_CONNECTED  # État initial après connexion TCP
+        self.room = None              # Nom du salon (None si pas dans un salon)
+    
+    def is_authenticated(self):
+        """Retourne True si le client a passé l'étape LOGIN."""
+        return self.state in (STATE_AUTHENTICATED, STATE_IN_ROOM)
+    
+    def is_in_room(self):
+        """Retourne True si le client est dans un salon."""
+        return self.state == STATE_IN_ROOM
 
 
 class ChatServer:
@@ -59,7 +73,7 @@ class ChatServer:
 
         # Enregistrement du client
         client.pseudo = pseudo
-        client.authenticated = True
+        client.state = STATE_AUTHENTICATED  # Transition: CONNECTÉ → AUTHENTIFIÉ
         self.clients[pseudo] = client
 
         # Confirmation de la connexion
