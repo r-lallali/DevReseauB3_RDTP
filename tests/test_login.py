@@ -27,44 +27,55 @@ class TestLogin(unittest.TestCase):
         self.srv_sock.close()
         self.cli_sock.close()
 
+    def _run_server(self):
+        """Lance le serveur dans un thread."""
+        thread = threading.Thread(
+            target=self.server.handle_client,
+            args=(self.srv_sock,)
+        )
+        thread.start()
+        return thread
+
 
     def test_login_ok(self):
-        # Connexion avec un pseudo valide
-        thread = threading.Thread(target=self.server.handle_client, args=(self.srv_sock,))
-        thread.start()
+        thread = self._run_server()
+
         msg_type, _ = login(self.cli_sock, "Donald")
+        self.cli_sock.close()   # Provoque la sortie de la boucle serveur
         thread.join()
 
         self.assertEqual(msg_type, LOGIN_OK)
 
     def test_login_empty_pseudo(self):
-        # Connexion avec un pseudo vide
-        thread = threading.Thread(target=self.server.handle_client, args=(self.srv_sock,))
-        thread.start()
+        thread = self._run_server()
+
         msg_type, _ = login(self.cli_sock, "")
+        self.cli_sock.close()
         thread.join()
 
         self.assertEqual(msg_type, LOGIN_ERR)
 
     def test_login_duplicate_pseudo(self):
-        # Connexion avec un pseudo déjà utilisé
         self.server.clients["Bob"] = object()
 
-        thread = threading.Thread(target=self.server.handle_client, args=(self.srv_sock,))
-        thread.start()
+        thread = self._run_server()
+
         msg_type, _ = login(self.cli_sock, "Bob")
+        self.cli_sock.close()
         thread.join()
 
         self.assertEqual(msg_type, LOGIN_ERR)
 
     def test_action_without_login(self):
-        # Envoi d'un message non autorisé avant le LOGIN
-        thread = threading.Thread(target=self.server.handle_client, args=(self.srv_sock,))
-        thread.start()
+        thread = self._run_server()
+
+        # Envoi d'un message interdit avant LOGIN
         self.cli_sock.send(pack_message(0x99))
 
         header = self.cli_sock.recv(5)
         msg_type, _ = unpack_header(header)
+
+        self.cli_sock.close()
         thread.join()
 
         self.assertEqual(msg_type, LOGIN_ERR)

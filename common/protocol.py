@@ -26,7 +26,7 @@ PING = 0xF0
 PONG = 0xF1
 
 # Constants
-MAX_PSEUDO_LEN = 50
+MAX_PSEUDO_LEN = 32
 
 STATE_CONNECTED = "CONNECTÉ"        # Connexion TCP établie, en attente de LOGIN
 STATE_AUTHENTICATED = "AUTHENTIFIÉ"  # LOGIN réussi, peut faire JOIN

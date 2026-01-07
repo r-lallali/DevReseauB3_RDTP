@@ -5,25 +5,18 @@ from common.protocol import *
 class ClientContext:
     """
     Représente l'état d'un client connecté.
-    
-    Chaque client a un état qui détermine ce qu'il peut faire :
-    - CONNECTÉ : peut seulement envoyer LOGIN
-    - AUTHENTIFIÉ : peut envoyer JOIN
-    - DANS_SALON : peut envoyer MSG, LEAVE
     """
 
     def __init__(self, sock):
         self.sock = sock
         self.pseudo = None
-        self.state = STATE_CONNECTED  # État initial après connexion TCP
-        self.room = None              # Nom du salon (None si pas dans un salon)
-    
+        self.state = STATE_CONNECTED
+        self.room = None
+
     def is_authenticated(self):
-        """Retourne True si le client a passé l'étape LOGIN."""
         return self.state in (STATE_AUTHENTICATED, STATE_IN_ROOM)
-    
+
     def is_in_room(self):
-        """Retourne True si le client est dans un salon."""
         return self.state == STATE_IN_ROOM
 
 
@@ -33,48 +26,70 @@ class ChatServer:
     """
 
     def __init__(self):
-        # Dictionnaire des clients connectés, identifiés par pseudo
         self.clients = {}
 
     def handle_client(self, sock):
         """
-        Traite un client pour une seule requête.
+        Traite un client tant que la connexion TCP est ouverte.
         """
 
         client = ClientContext(sock)
 
-        # Lecture de l'en-tête du message (type + longueur)
-        header = sock.recv(5)
-        msg_type, length = unpack_header(header)
+        try:
+            while True:
+                # Lecture de l'en-tête
+                header = sock.recv(5)
+                if not header:
+                    break
 
-        # Lecture des données associées au message
-        payload = sock.recv(length)
+                msg_type, length = unpack_header(header)
+                payload = sock.recv(length)
 
-        # Seul le message LOGIN est accepté
-        if msg_type != LOGIN:
-            sock.send(pack_message(LOGIN_ERR, pack_string("Login requis")))
+                # --------------------
+                # Phase LOGIN
+                # --------------------
+                if client.state == STATE_CONNECTED:
+                    if msg_type != LOGIN:
+                        sock.send(pack_message(
+                            LOGIN_ERR,
+                            pack_string("Login requis")
+                        ))
+                        break
+
+                    pseudo = unpack_string(payload)
+
+                    if not pseudo or len(pseudo) > MAX_PSEUDO_LEN:
+                        sock.send(pack_message(
+                            LOGIN_ERR,
+                            pack_string("Pseudo invalide")
+                        ))
+                        break
+
+                    if pseudo in self.clients:
+                        sock.send(pack_message(
+                            LOGIN_ERR,
+                            pack_string("Pseudo déjà utilisé")
+                        ))
+                        break
+
+                    client.pseudo = pseudo
+                    client.state = STATE_AUTHENTICATED
+                    self.clients[pseudo] = client
+
+                    sock.send(pack_message(LOGIN_OK))
+                    continue
+
+                # --------------------
+                # États suivants (non implémentés)
+                # --------------------
+                sock.send(pack_message(
+                    GENERIC_ERR,
+                    pack_string("Action non supportée")
+                ))
+
+        finally:
+            # Nettoyage lors de la déconnexion
+            if client.pseudo in self.clients:
+                del self.clients[client.pseudo]
+
             sock.close()
-            return
-
-        # Extraction du pseudo depuis les données reçues
-        pseudo = unpack_string(payload)
-
-        # Vérification du pseudo
-        if not pseudo or len(pseudo) > MAX_PSEUDO_LEN:
-            sock.send(pack_message(LOGIN_ERR, pack_string("Pseudo invalide")))
-            sock.close()
-            return
-
-        # Vérification de l'unicité du pseudo
-        if pseudo in self.clients:
-            sock.send(pack_message(LOGIN_ERR, pack_string("Pseudo déjà utilisé")))
-            sock.close()
-            return
-
-        # Enregistrement du client
-        client.pseudo = pseudo
-        client.state = STATE_AUTHENTICATED  # Transition: CONNECTÉ → AUTHENTIFIÉ
-        self.clients[pseudo] = client
-
-        # Confirmation de la connexion
-        sock.send(pack_message(LOGIN_OK))
