@@ -10,7 +10,11 @@ Il ne contient pas de logique métier : celle-ci reste dans ChatServer.
 """
 
 import socket
-from .server import ChatServer
+# Ensure running the script directly can import package modules
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from server.server import ChatServer
 
 # Adresse et port d'écoute du serveur
 HOST = "0.0.0.0"  # toutes les interfaces

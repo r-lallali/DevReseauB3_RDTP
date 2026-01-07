@@ -12,7 +12,8 @@ Il ne contient pas de logique de protocole, qui est dans client.py.
 """
 
 import socket
-from .client import login
+from client.client import login
+from common.protocol import LOGIN_OK
 
 # Adresse du serveur
 SERVER_IP = "127.0.0.1"
@@ -34,15 +35,20 @@ def main():
         # Pseudo utilisé pour la connexion
         pseudo = "Donald"
 
-        # Demande de connexion
-        msg_type, payload = login(sock, pseudo)
+        # Phase de login
+        msg_type, _ = login(sock, pseudo)
 
-        # Le traitement de la réponse est volontairement minimal
-        if msg_type != 0x01:  # LOGIN_OK
+        if msg_type != LOGIN_OK:
             print("Échec de la connexion")
+            return
+
+        print("Connexion réussie")
+
+        # À ce stade, la connexion TCP reste ouverte.
+        # Les actions suivantes (JOIN, MSG, etc.) seront ajoutées ici.
 
     finally:
-        # Fermeture propre de la socket
+        # Fermeture propre de la connexion
         sock.close()
 
 
