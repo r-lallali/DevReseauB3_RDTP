@@ -39,6 +39,12 @@ Chaque message a cette structure :
 | `0x30` | ERROR | Serveur → Client | Erreur |
 | `0xF0` | PING | Serveur → Client | Heartbeat |
 | `0xF1` | PONG | Client → Serveur | Réponse heartbeat |
+| `0x40` | FILE_OFFER | Client → Serveur | Propose un fichier audio |
+| `0x41` | FILE_REQUEST | Serveur → Clients | Demande d’acceptation du fichier |
+| `0x42` | FILE_ACCEPT | Client → Serveur | Accepte le fichier |
+| `0x43` | FILE_REJECT | Client → Serveur | Refuse le fichier |
+| `0x44` | FILE_START | Serveur → Client | Autorisation de commencer l’envoi |
+| `0x45` | FILE_CANCEL | Serveur → Client | Refus du transfert |
 
 ---
 
@@ -88,6 +94,37 @@ Payload vide.
 
 ---
 
+### FILE_OFFER (0x40)
+
+[LONG_FILENAME: 2o][FILENAME: UTF-8][SIZE: 4o]
+
+- **États requis** : `DANS_SALON`
+- **Nouvel état** : `WAITING_FILE_CONFIRMATION`
+
+### FILE_REQUEST (0x41)
+
+[LONG_PSEUDO: 2o][PSEUDO: UTF-8][LONG_FILENAME: 2o][FILENAME: UTF-8][SIZE: 4o]
+
+### FILE_ACCEPT (0x42)
+Payload vide.
+- **États requis** : `DANS_SALON`
+
+### FILE_REJECT (0x43)
+Payload vide.
+- **États requis** : `DANS_SALON`
+
+### FILE_START (0x44)
+Payload vide.
+- **Effet** : Retour à l’état `DANS_SALON`
+
+### FILE_CANCEL (0x45)
+
+[LONG_REASON: 2o][REASON: UTF-8]
+
+- **Effet** : Retour à l’état `DANS_SALON`
+
+---
+
 ## 4. Codes d'erreur
 
 | Code | Signification |
@@ -98,24 +135,54 @@ Payload vide.
 | `0x04` | Déjà dans un salon |
 | `0x05` | Message trop long |
 | `0x06` | Action non autorisée |
+| `0x07` | Fichier trop volumineux |
+| `0x08` | Transfert déjà en cours |
 
 ---
 
 ## 5. États du client
 
 ```
+
 DÉCONNECTÉ ──TCP──► CONNECTÉ ──LOGIN_OK──► AUTHENTIFIÉ ──JOIN_OK──► DANS_SALON
-                                               ▲                        │
-                                               └────────LEAVE───────────┘
-```
+                                               ▲                         │
+                                               │                         │
+                                               │                         │ Propose fichier audio
+                                               │                         ▼
+                                               │             WAITING_FILE_CONFIRMATION
+                                               |
+                                               |
+                                               │                         │
+                                               └────────────── LEAVE ────┘
+
 
 | État | Messages autorisés |
 |------|-------------------|
 | CONNECTÉ | LOGIN |
 | AUTHENTIFIÉ | JOIN, PONG |
 | DANS_SALON | MSG, LEAVE, PONG |
+| WAITING_FILE_CONFIRMATION | Messages liés à la confirmation de fichier, PONG |
 
----
+### État : WAITING_FILE_CONFIRMATION
+
+Un client est dans cet état lorsqu’il a proposé un fichier audio et attend
+la confirmation des autres clients du salon.
+
+Durant cet état :
+- le client ne peut pas envoyer de messages (MSG)
+- le client ne peut pas changer de salon
+- seuls certains messages sont autorisés
+```
+
+### État : WAITING_FILE_CONFIRMATION
+
+Un client est dans cet état lorsqu’il a proposé un fichier audio et attend  
+la confirmation des autres clients du salon.
+
+Durant cet état :
+- le client ne peut pas envoyer de messages (MSG)
+- le client ne peut pas changer de salon
+- seuls certains messages sont autorisés
 
 ## 6. Heartbeat
 
@@ -132,6 +199,7 @@ DÉCONNECTÉ ──TCP──► CONNECTÉ ──LOGIN_OK──► AUTHENTIFIÉ �
 | Pseudo | 32 caractères |
 | Nom de salon | 32 caractères |
 | Message | 1024 caractères |
+| Taille fichier  | 10 Mo  |
 
 ---
 
@@ -142,3 +210,5 @@ DÉCONNECTÉ ──TCP──► CONNECTÉ ──LOGIN_OK──► AUTHENTIFIÉ �
 3. Le salon est créé automatiquement s'il n'existe pas
 4. Un client ne peut être que dans **un seul salon** à la fois
 5. Toujours répondre `PONG` à un `PING`
+6. Pendant un transfert de fichier, le client émetteur ne peut pas envoyer de messages ni changer de salon
+7. Le serveur diffuse `FILE_REQUEST` à tous les clients du salon sauf l’émetteur
