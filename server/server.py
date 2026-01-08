@@ -13,6 +13,7 @@ class ClientContext:
         self.pseudo = None
         self.state = STATE_CONNECTED
         self.room = None
+        self.pending_file = None
 
     def is_authenticated(self):
         return self.state in (STATE_AUTHENTICATED, STATE_IN_ROOM)
@@ -180,6 +181,82 @@ class ChatServer:
         client.room = None
         client.state = STATE_AUTHENTICATED  # Transition: DANS_SALON → AUTHENTIFIÉ
 
+
+    def handle_file_offer(self, client: ClientContext, payload: bytes):
+        if not client.is_in_room():
+            client.sock.send(pack_message(
+                ERROR,
+                bytes([0x03]) + pack_string("Pas dans un salon")
+            ))
+            return
+
+        if client.state == STATE_WAITING_FILE_CONFIRMATION:
+            client.sock.send(pack_message(
+                ERROR,
+                bytes([0x06]) + pack_string("Déjà une requête en cours")
+            ))
+            return
+
+        # Décodage payload
+        filename = unpack_string(payload)
+        size_offset = 2 + len(filename.encode("utf-8"))
+        size = unpack_int(payload[size_offset:])
+
+        # Passage à l'état intermédiaire
+        client.state = STATE_WAITING_FILE_CONFIRMATION
+        client.pending_file = {
+            "filename": filename,
+            "size": size,
+            "accepted": set(),
+            "rejected": set()
+        }
+
+        # Diffuser la demande aux autres clients du salon
+        request_payload = (
+            pack_string(client.pseudo) +
+            pack_string(filename) +
+            pack_int(size)
+        )
+
+        request_msg = pack_message(FILE_REQUEST, request_payload)
+
+        for pseudo in self.rooms.get(client.room, []):
+            if pseudo != client.pseudo:
+                self.clients[pseudo].sock.send(request_msg)
+
+
+    def handle_file_response(self, client: ClientContext, accepted: bool):
+        # Trouver le client émetteur
+        for sender in self.clients.values():
+            if sender.state == STATE_WAITING_FILE_CONFIRMATION:
+                break
+        else:
+            return  # Aucun transfert en attente
+
+        if accepted:
+            sender.pending_file["accepted"].add(client.pseudo)
+        else:
+            sender.pending_file["rejected"].add(client.pseudo)
+
+        # Décision simple : 1 refus = rejet
+        if sender.pending_file["rejected"]:
+            sender.sock.send(pack_message(
+                FILE_CANCEL,
+                pack_string("Refus d'un participant")
+            ))
+            sender.state = STATE_IN_ROOM
+            sender.pending_file = None
+            return
+
+        # Tous ont accepté
+        room_clients = self.rooms.get(sender.room, set())
+        if sender.pending_file["accepted"] >= (room_clients - {sender.pseudo}):
+            sender.sock.send(pack_message(FILE_START))
+            sender.state = STATE_IN_ROOM
+            sender.pending_file = None
+
+
+
     def handle_client(self, sock):
         """
         Traite un client tant que la connexion TCP est ouverte.
@@ -234,6 +311,24 @@ class ChatServer:
                     sock.send(pack_message(LOGIN_OK))
                     print(f"Client authentifié : {pseudo}")
                     continue
+
+                # ====================
+                # ÉTAT INTERMÉDIAIRE : attente confirmation fichier
+                # ====================
+                if client.state == STATE_WAITING_FILE_CONFIRMATION:
+                    if msg_type == FILE_ACCEPT:
+                        self.handle_file_response(client, accepted=True)
+
+                    elif msg_type == FILE_REJECT:
+                        self.handle_file_response(client, accepted=False)
+
+                    else:
+                        sock.send(pack_message(
+                            ERROR,
+                            bytes([0x06]) + pack_string("Action bloquée : transfert en attente")
+                        ))
+                    continue
+
 
                 # --------------------
                 # États AUTHENTIFIÉ et DANS_SALON
