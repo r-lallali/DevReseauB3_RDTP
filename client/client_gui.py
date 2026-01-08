@@ -40,7 +40,8 @@ class ChatClient:
         self.server_port = SERVER_PORT
         self.current_room = None
         self.connected = False
-        self.users_in_room = set()
+        self.users_in_room = set()  # Utilisateurs dans la room courante
+        self.room_members = {}  # Dictionnaire room -> set de membres (pour affichage global)
         self._pending_room = None
         self.custom_channel_name = None  # Le channel custom créé par l'utilisateur
         
@@ -99,7 +100,7 @@ class ChatClient:
         self.connect_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Row([
-                ft.Icon(ft.icons.DNS, color=TS_BLUE, size=24),
+                ft.Icon(ft.Icons.COMPUTER, color=TS_BLUE, size=24),
                 ft.Text("Connect to Server", color=TS_TEXT_BLACK, weight=ft.FontWeight.BOLD, size=16),
             ], spacing=10),
             bgcolor=TS_BG_GRAY,
@@ -190,8 +191,8 @@ class ChatClient:
         """Configure l'interface principale style TeamSpeak 3."""
         
         # ============ TOOLBAR ============
-        self.mic_btn = self._toolbar_icon(ft.icons.MIC, color=TS_BLUE, tooltip="Mute Microphone", on_click=self.toggle_mic)
-        self.sound_btn = self._toolbar_icon(ft.icons.HEADSET, color=TS_BLUE, tooltip="Mute Sound", on_click=self.toggle_sound)
+        self.mic_btn = self._toolbar_icon(ft.Icons.MIC, color=TS_BLUE, tooltip="Mute Microphone", on_click=self.toggle_mic)
+        self.sound_btn = self._toolbar_icon(ft.Icons.HEADSET, color=TS_BLUE, tooltip="Mute Sound", on_click=self.toggle_sound)
         self.mic_muted = False
         self.sound_muted = False
         
@@ -200,7 +201,7 @@ class ChatClient:
                 self.mic_btn,
                 self.sound_btn,
                 ft.VerticalDivider(width=1, color=TS_BORDER),
-                self._toolbar_icon(ft.icons.LOGOUT, color=TS_RED, tooltip="Leave Channel", on_click=self.leave_channel),
+                self._toolbar_icon(ft.Icons.LOGOUT, color=TS_RED, tooltip="Leave Channel", on_click=self.leave_channel),
             ], spacing=2),
             bgcolor=TS_BG_LIGHT,
             padding=5,
@@ -212,7 +213,7 @@ class ChatClient:
         # Serveur (IP)
         server_row = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.DNS, color=TS_BLUE, size=16),
+                ft.Icon(ft.Icons.COMPUTER, color=TS_BLUE, size=16),
                 ft.Text(f"{self.server_ip}:{self.server_port}", color=TS_TEXT_BLACK, size=12, weight=ft.FontWeight.BOLD),
             ], spacing=8),
             padding=ft.padding.only(left=5, top=8, bottom=8),
@@ -221,7 +222,7 @@ class ChatClient:
         # Default Channel
         self.default_channel_row = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.LOCK_OPEN, color=TS_BLUE, size=14),
+                ft.Icon(ft.Icons.LOCK_OPEN, color=TS_BLUE, size=14),
                 ft.Text("Default Channel", color=TS_TEXT_BLACK, size=12),
             ], spacing=8),
             padding=ft.padding.only(left=25, top=5, bottom=5),
@@ -242,7 +243,7 @@ class ChatClient:
         # Custom Channel - Header
         custom_header = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.FOLDER, color=TS_BLUE, size=14),
+                ft.Icon(ft.Icons.FOLDER, color=TS_BLUE, size=14),
                 ft.Text("Custom Channel", color=TS_TEXT_GRAY, size=11, italic=True),
             ], spacing=8),
             padding=ft.padding.only(left=25, top=5, bottom=5),
@@ -251,7 +252,7 @@ class ChatClient:
         # Custom Channel - Mon channel (si créé)
         self.custom_channel_row = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.LOCK, color=TS_BLUE, size=14),
+                ft.Icon(ft.Icons.LOCK, color=TS_BLUE, size=14),
                 ft.Text("", color=TS_TEXT_BLACK, size=12),
             ], spacing=8),
             padding=ft.padding.only(left=40, top=5, bottom=5),
@@ -349,7 +350,7 @@ class ChatClient:
         # Onglets
         self.tab_server = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.DNS, color=TS_BLUE, size=14),
+                ft.Icon(ft.Icons.COMPUTER, color=TS_BLUE, size=14),
                 ft.Text(f"{self.server_ip}", color=TS_TEXT_BLACK, size=11),
             ], spacing=5),
             bgcolor=TS_BG_WHITE,
@@ -360,7 +361,7 @@ class ChatClient:
         
         self.tab_channel = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.TAG, color=TS_BLUE, size=14),
+                ft.Icon(ft.Icons.TAG, color=TS_BLUE, size=14),
                 ft.Text("No channel", color=TS_TEXT_BLACK, size=11),
             ], spacing=5),
             bgcolor=TS_BG_LIGHT,
@@ -471,7 +472,7 @@ class ChatClient:
     def toggle_mic(self, e):
         """Active/désactive le micro."""
         self.mic_muted = not self.mic_muted
-        self.mic_btn.icon = ft.icons.MIC_OFF if self.mic_muted else ft.icons.MIC
+        self.mic_btn.icon = ft.Icons.MIC_OFF if self.mic_muted else ft.Icons.MIC
         self.mic_btn.icon_color = TS_RED if self.mic_muted else TS_BLUE
         self.log_message("Microphone " + ("muted" if self.mic_muted else "unmuted"), TS_BLUE if self.mic_muted else TS_BLUE)
         self.page.update()
@@ -479,7 +480,7 @@ class ChatClient:
     def toggle_sound(self, e):
         """Active/désactive le son."""
         self.sound_muted = not self.sound_muted
-        self.sound_btn.icon = ft.icons.HEADSET_OFF if self.sound_muted else ft.icons.HEADSET
+        self.sound_btn.icon = ft.Icons.HEADSET_OFF if self.sound_muted else ft.Icons.HEADSET
         self.sound_btn.icon_color = TS_RED if self.sound_muted else TS_BLUE
         self.log_message("Sound " + ("muted" if self.sound_muted else "unmuted"), TS_BLUE if self.sound_muted else TS_BLUE)
         self.page.update()
@@ -509,7 +510,7 @@ class ChatClient:
         is_me = user == self.pseudo
         user_row = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.PERSON, color=TS_BLUE, size=12),
+                ft.Icon(ft.Icons.PERSON, color=TS_BLUE, size=12),
                 ft.Text(
                     user,
                     color=TS_BLUE if is_me else TS_TEXT_BLACK,
@@ -535,13 +536,10 @@ class ChatClient:
         self.default_channel_row.bgcolor = TS_BG_LIGHT if is_default else None
         self.default_channel_row.content.controls[0].color = TS_BLUE if is_default else TS_BLUE
         
-        # Afficher les users dans le bon channel
-        if is_default:
-            for user in sorted(self.users_in_room):
-                self._add_user_to_list(user, self.default_users_list)
-        elif is_custom:
-            for user in sorted(self.users_in_room):
-                self._add_user_to_list(user, self.custom_users_list)
+        # Afficher les users dans Default Channel (depuis room_members)
+        default_members = self.room_members.get("Default Channel", set())
+        for user in sorted(default_members):
+            self._add_user_to_list(user, self.default_users_list)
         
         # Custom Channel
         if self.custom_channel_name:
@@ -549,12 +547,18 @@ class ChatClient:
             self.custom_channel_row.content.controls[1].value = self.custom_channel_name
             self.custom_channel_row.bgcolor = TS_BG_LIGHT if is_custom else None
             self.custom_channel_row.content.controls[0].color = TS_BLUE if is_custom else TS_BLUE
+            
+            # Afficher les users dans Custom Channel (depuis room_members)
+            custom_members = self.room_members.get(self.custom_channel_name, set())
+            for user in sorted(custom_members):
+                self._add_user_to_list(user, self.custom_users_list)
         else:
             self.custom_channel_row.visible = False
         
-        # Infos
+        # Infos - nombre d'utilisateurs dans le room actuel
+        current_members = self.room_members.get(self.current_room, set()) if self.current_room else set()
         self.info_channel.value = self.current_room or "No channel"
-        self.info_users.value = str(len(self.users_in_room))
+        self.info_users.value = str(len(current_members))
         
         # Onglet channel
         if self.current_room:
@@ -617,12 +621,20 @@ class ChatClient:
         """Ajoute un message de chat."""
         now = datetime.datetime.now().strftime("%H:%M:%S")
         is_me = pseudo == self.pseudo
+        is_system = pseudo == "Serveur"
         
-        msg = ft.Row([
-            ft.Text(f"<{now}>", color=TS_TEXT_GRAY, size=11),
-            ft.Text(f"<{pseudo}>", color=TS_BLUE if is_me else TS_BLUE, size=11, weight=ft.FontWeight.BOLD),
-            ft.Text(text, color=TS_TEXT_BLACK, size=11),
-        ], spacing=5)
+        if is_system:
+            # Message système : juste le timestamp et le texte
+            msg = ft.Row([
+                ft.Text(f"<{now}>", color=TS_TEXT_GRAY, size=11),
+                ft.Text(text, color=TS_TEXT_GRAY, size=11),
+            ], spacing=5)
+        else:
+            msg = ft.Row([
+                ft.Text(f"<{now}>", color=TS_TEXT_GRAY, size=11),
+                ft.Text(f"<{pseudo}>", color=TS_BLUE if is_me else TS_BLUE, size=11, weight=ft.FontWeight.BOLD),
+                ft.Text(text, color=TS_TEXT_BLACK, size=11),
+            ], spacing=5)
         
         self.chat_list.controls.append(msg)
         self.page.update()
@@ -633,6 +645,10 @@ class ChatClient:
             try:
                 header = self.sock.recv(5)
                 if not header:
+                    # Connexion fermée par le serveur (kick)
+                    self.connected = False
+                    self.log_message("Vous avez été déconnecté du serveur", TS_RED)
+                    self._show_disconnected()
                     break
                 
                 msg_type, length = unpack_header(header)
@@ -643,10 +659,32 @@ class ChatClient:
                     pseudo_len = 2 + len(pseudo.encode('utf-8'))
                     message = unpack_string(payload[pseudo_len:])
                     
-                    # Ajouter l'utilisateur à la liste si nouveau
-                    if pseudo not in self.users_in_room:
-                        self.users_in_room.add(pseudo)
-                        self._refresh_ui()
+                    # Gérer les messages système du Serveur
+                    if pseudo == "Serveur":
+                        # Parser les messages de connexion/déconnexion
+                        if "s'est connecté" in message:
+                            # Extraire le pseudo de "X s'est connecté"
+                            user = message.replace(" s'est connecté", "")
+                            if user and user != self.pseudo and user not in self.users_in_room:
+                                self.users_in_room.add(user)
+                                self._refresh_ui()
+                        elif "a été kické" in message:
+                            # Extraire le pseudo de "X a été kické"
+                            user = message.replace(" a été kické", "")
+                            if user in self.users_in_room:
+                                self.users_in_room.discard(user)
+                                self._refresh_ui()
+                        elif "s'est déconnecté" in message:
+                            # Extraire le pseudo de "X s'est déconnecté"
+                            user = message.replace(" s'est déconnecté", "")
+                            if user in self.users_in_room:
+                                self.users_in_room.discard(user)
+                                self._refresh_ui()
+                    else:
+                        # Message d'un autre utilisateur
+                        if pseudo not in self.users_in_room and pseudo != self.pseudo:
+                            self.users_in_room.add(pseudo)
+                            self._refresh_ui()
                     
                     self.chat_message(pseudo, message)
                 
@@ -666,12 +704,62 @@ class ChatClient:
                     error_msg = unpack_string(payload[1:])
                     self.log_message(f"Error: {error_msg}", TS_RED)
                 
+                elif msg_type == ROOM_UPDATE:
+                    # Parse: [room_name][user][action]
+                    room_name = unpack_string(payload)
+                    offset = 2 + len(room_name.encode('utf-8'))
+                    user = unpack_string(payload[offset:])
+                    offset += 2 + len(user.encode('utf-8'))
+                    action = unpack_string(payload[offset:])
+                    
+                    # Mettre à jour room_members
+                    if room_name not in self.room_members:
+                        self.room_members[room_name] = set()
+                    
+                    if action == "join":
+                        self.room_members[room_name].add(user)
+                    elif action == "leave":
+                        self.room_members[room_name].discard(user)
+                    
+                    # Mettre à jour users_in_room si on est dans cette room
+                    if room_name == self.current_room:
+                        self.users_in_room = self.room_members[room_name].copy()
+                    
+                    self._refresh_ui()
+                
             except Exception as ex:
                 if self.connected:
-                    self.log_message(f"Disconnected: {ex}", TS_RED)
+                    self.connected = False
+                    self.log_message(f"Déconnecté: {ex}", TS_RED)
+                    self._show_disconnected()
                 break
         
         self.connected = False
+    
+    def _show_disconnected(self):
+        """Retourne à la page de connexion après un kick."""
+        try:
+            # Fermer la socket
+            if self.sock:
+                try:
+                    self.sock.close()
+                except:
+                    pass
+            
+            # Réinitialiser l'état
+            self.sock = None
+            self.pseudo = None
+            self.current_room = None
+            self.users_in_room = set()
+            
+            # Vider la page et réafficher le dialog de connexion
+            self.page.controls.clear()
+            self.page.overlay.clear()
+            self.show_connect_dialog()
+            self.dialog_error.value = "Vous avez été kické du serveur"
+            self.page.update()
+        except:
+            pass
 
 
 def main(page: ft.Page):
