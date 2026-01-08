@@ -5,6 +5,7 @@ Ce fichier est responsable :
 - de la création de la socket d'écoute
 - de la réception des connexions clients
 - du déclenchement de la logique serveur définie dans server.py
+- du lancement du dashboard admin
 
 Il ne contient pas de logique métier : celle-ci reste dans ChatServer.
 """
@@ -16,20 +17,17 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from server.server import ChatServer
+from server.admin_gui import run_admin_dashboard
 
 # Adresse et port d'écoute du serveur
 HOST = "0.0.0.0"  # toutes les interfaces
 PORT = 5555       # port à utiliser pour les clients (5000 est utilisé par macOS)
 
-def main():
-    """
-    Initialise le serveur et accepte les connexions entrantes.
-    Chaque client est géré dans un thread séparé pour permettre
-    plusieurs connexions simultanées.
-    """
 
-    server = ChatServer()
-
+def run_socket_server(server):
+    """
+    Lance le serveur socket dans un thread.
+    """
     # Création de la socket TCP
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     
@@ -51,18 +49,38 @@ def main():
             print(f"Connexion de {client_addr}")
 
             # Créer un thread pour gérer ce client
-            # Cela permet d'accepter d'autres clients pendant que celui-ci est traité
             client_thread = threading.Thread(
                 target=server.handle_client,
                 args=(client_sock,),
-                daemon=True  # Le thread se termine si le programme principal se termine
+                daemon=True
             )
             client_thread.start()
 
     finally:
-        # Fermeture propre de la socket
         sock.close()
         print("Serveur arrêté.")
+
+
+def main():
+    """
+    Initialise le serveur et le dashboard admin.
+    Le serveur socket tourne dans un thread, le dashboard Flet dans le main thread.
+    """
+
+    server = ChatServer()
+
+    # Lancer le serveur socket dans un thread séparé
+    server_thread = threading.Thread(
+        target=run_socket_server,
+        args=(server,),
+        daemon=True
+    )
+    server_thread.start()
+
+    # Lancer le dashboard admin dans le main thread (requis par Flet)
+    print("Dashboard admin lancé")
+    run_admin_dashboard(server)
+
 
 if __name__ == "__main__":
     main()
