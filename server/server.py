@@ -79,17 +79,6 @@ class ChatServer:
         # Confirmer
         client.sock.send(pack_message(JOIN_OK))
         
-        # NOTIFICATION (US8)
-        # Tous les clients connectés (sauf le nouveau) reçoivent un message d'info "PSEUDO s'est connecté"
-        # _broadcast_to_room envoie à tout le monde dans la liste, on doit filtrer pour éviter d'envoyer à soi-même ?
-        # La méthode _broadcast_to_room implémentée itère sur `self.rooms[room_name]`.
-        # Si on l'appelle maintenant, le client courant EST dans la liste (ajouté lignes 73-74).
-        # Donc il va recevoir le message.
-        # Le DoD dit "sauf le nouveau".
-        # Je vais modifier _broadcast_to_room pour accepter un paramètre d'exclusion ou gérer l'exclusion ici.
-        # Pour faire simple et moins intrusif, je vais filtrer dans _broadcast_to_room si possible,
-        # ou je l'appelle et le client filtrera ? Non le serveur ne doit pas l'envoyer.
-        
         # Option: Modifier _broadcast_to_room pour exclude
         self._broadcast_to_room(room_name, "Serveur", f"{client.pseudo} s'est connecté", exclude_pseudo=client.pseudo)
     
@@ -109,7 +98,6 @@ class ChatServer:
         # Retirer le client du salon
         self._remove_client_from_room(client)
         
-        # Pas de message de confirmation selon le protocole (LEAVE n'a pas de LEAVE_OK)
         # Le client sait qu'il a quitté car il a envoyé LEAVE
     
     def handle_msg(self, client: ClientContext, payload: bytes):
