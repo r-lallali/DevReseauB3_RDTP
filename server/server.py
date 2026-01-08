@@ -78,6 +78,9 @@ class ChatServer:
         
         # Confirmer
         client.sock.send(pack_message(JOIN_OK))
+        
+        # Option: Modifier _broadcast_to_room pour exclude
+        self._broadcast_to_room(room_name, "Serveur", f"{client.pseudo} s'est connecté", exclude_pseudo=client.pseudo)
     
     def handle_leave(self, client: ClientContext):
         """
@@ -95,7 +98,6 @@ class ChatServer:
         # Retirer le client du salon
         self._remove_client_from_room(client)
         
-        # Pas de message de confirmation selon le protocole (LEAVE n'a pas de LEAVE_OK)
         # Le client sait qu'il a quitté car il a envoyé LEAVE
     
     def handle_msg(self, client: ClientContext, payload: bytes):
@@ -128,7 +130,7 @@ class ChatServer:
         # Diffuser le message à tous les clients du salon
         self._broadcast_to_room(client.room, client.pseudo, message)
     
-    def _broadcast_to_room(self, room_name: str, sender_pseudo: str, message: str):
+    def _broadcast_to_room(self, room_name: str, sender_pseudo: str, message: str, exclude_pseudo: str = None):
         """
         Diffuse un message à tous les clients d'un salon.
         
@@ -136,6 +138,7 @@ class ChatServer:
             room_name: Le nom du salon
             sender_pseudo: Le pseudo de l'expéditeur
             message: Le message à diffuser
+            exclude_pseudo: Pseudo à exclure de la diffusion (optionnel)
         """
         
         # Vérifier que le salon existe
@@ -148,6 +151,9 @@ class ChatServer:
         
         # Envoyer à chaque client du salon
         for pseudo in self.rooms[room_name]:
+            if pseudo == exclude_pseudo:
+                continue
+                
             if pseudo in self.clients:
                 try:
                     self.clients[pseudo].sock.send(broadcast_msg)
@@ -220,11 +226,13 @@ class ChatServer:
                             ))
                             break
 
+                        # Succès
                         client.pseudo = pseudo
                         client.state = STATE_AUTHENTICATED
-                        self.clients[pseudo] = client
-
+                        self.clients[pseudo] = client # Changed from self.clients_by_pseudo to self.clients to match original structure
+                    
                     sock.send(pack_message(LOGIN_OK))
+                    print(f"Client authentifié : {pseudo}")
                     continue
 
                 # --------------------
@@ -238,13 +246,9 @@ class ChatServer:
                 
                 elif msg_type == MSG:
                     self.handle_msg(client, payload)
-                
-                elif msg_type == PONG:
-                    # Réponse au heartbeat, rien à faire pour l'instant
-                    pass
-                
+                # Pour l'instant, on ne gère pas MSG ici, mais on garde la co.
                 else:
-                    # Message non reconnu
+                    print(f"Message reçu de {client.pseudo}: Type {msg_type}")                  
                     sock.send(pack_message(
                         ERROR,
                         bytes([0x06]) + pack_string("Action non autorisée")
