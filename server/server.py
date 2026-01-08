@@ -138,18 +138,16 @@ class ChatServer:
             message: Le message à diffuser
         """
         
+        # Vérifier que le salon existe
+        if room_name not in self.rooms:
+            return
+        
         # Construire le payload MSG_BROADCAST : [pseudo][message]
         broadcast_payload = pack_string(sender_pseudo) + pack_string(message)
         broadcast_msg = pack_message(MSG_BROADCAST, broadcast_payload)
         
-        # Copier la liste des destinataires sous lock pour éviter les modifications concurrentes
-        with self.lock:
-            if room_name not in self.rooms:
-                return
-            recipients = list(self.rooms[room_name])
-        
-        # Envoyer à chaque client du salon (hors du lock pour ne pas bloquer)
-        for pseudo in recipients:
+        # Envoyer à chaque client du salon
+        for pseudo in self.rooms[room_name]:
             if pseudo in self.clients:
                 try:
                     self.clients[pseudo].sock.send(broadcast_msg)

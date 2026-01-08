@@ -55,3 +55,46 @@ def leave_room(sock):
     sock.send(pack_message(LEAVE))
     
     # LEAVE n'a pas de réponse selon le protocole
+
+
+def send_message(sock, message: str):
+    """
+    Envoie un message dans le salon actuel.
+    
+    Args:
+        sock: La socket connectée au serveur
+        message: Le texte du message à envoyer
+    """
+    
+    payload = pack_string(message)
+    sock.send(pack_message(MSG, payload))
+    
+    # Pas de réponse directe — le message sera broadcasté à tous
+
+
+def receive_broadcast(sock):
+    """
+    Reçoit un message MSG_BROADCAST du serveur.
+    
+    Returns:
+        tuple: (pseudo, message) — l'expéditeur et son message
+    """
+    
+    # Lire l'en-tête
+    header = sock.recv(5)
+    msg_type, length = unpack_header(header)
+    
+    # Lire le payload
+    payload = sock.recv(length)
+    
+    if msg_type != MSG_BROADCAST:
+        # Ce n'est pas un broadcast, retourner le type pour traitement
+        return None, None, msg_type, payload
+    
+    # Décoder le payload : [pseudo][message]
+    pseudo = unpack_string(payload)
+    # Calculer où commence le message (après le pseudo)
+    pseudo_len = 2 + len(pseudo.encode('utf-8'))
+    message = unpack_string(payload[pseudo_len:])
+    
+    return pseudo, message
