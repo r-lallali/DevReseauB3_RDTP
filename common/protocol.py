@@ -21,6 +21,7 @@ JOIN_OK = 0x11
 LEAVE = 0x12
 MSG = 0x20
 MSG_BROADCAST = 0x21
+ROOM_UPDATE = 0x22  # Liste des membres d'un room
 ERROR = 0x30
 PING = 0xF0
 PONG = 0xF1

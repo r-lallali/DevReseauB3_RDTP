@@ -1,5 +1,6 @@
 import socket
 import threading
+import datetime
 from common.protocol import *
 
 
@@ -13,6 +14,7 @@ class ClientContext:
         self.pseudo = None
         self.state = STATE_CONNECTED
         self.room = None
+        self.last_message_time = None  # datetime du dernier message envoyé
         self.pending_file = None
 
     def is_authenticated(self):
@@ -71,6 +73,9 @@ class ChatServer:
             if room_name not in self.rooms:
                 self.rooms[room_name] = set()
             
+            # Récupérer les membres actuels avant d'ajouter le nouveau
+            existing_members = list(self.rooms[room_name])
+            
             # Ajouter le client au salon
             self.rooms[room_name].add(client.pseudo)
         
@@ -80,7 +85,15 @@ class ChatServer:
         # Confirmer
         client.sock.send(pack_message(JOIN_OK))
         
-        # Option: Modifier _broadcast_to_room pour exclude
+        # Envoyer la liste des membres existants au nouveau client via ROOM_UPDATE
+        for member in existing_members:
+            payload = pack_string(room_name) + pack_string(member) + pack_string("join")
+            client.sock.send(pack_message(ROOM_UPDATE, payload))
+        
+        # Notifier TOUS les clients que le nouveau a rejoint (pour la liste globale)
+        self._broadcast_room_update(room_name, client.pseudo, "join")
+        
+        # Notifier les autres dans le chat
         self._broadcast_to_room(room_name, "Serveur", f"{client.pseudo} s'est connecté", exclude_pseudo=client.pseudo)
     
     def handle_leave(self, client: ClientContext):
@@ -128,6 +141,9 @@ class ChatServer:
             client.sock.send(pack_message(ERROR, bytes([0x05]) + pack_string("Message trop long")))
             return
         
+        # Enregistrer le timestamp du message pour le dashboard admin
+        client.last_message_time = datetime.datetime.now()
+        
         # Diffuser le message à tous les clients du salon
         self._broadcast_to_room(client.room, client.pseudo, message)
     
@@ -162,24 +178,111 @@ class ChatServer:
                     # Si l'envoi échoue, on ignore (le client sera nettoyé plus tard)
                     pass
     
-    def _remove_client_from_room(self, client: ClientContext):
+    def _broadcast_room_update(self, room_name: str, user: str, action: str):
         """
-        Retire un client de son salon actuel.
-        Méthode interne utilisée par handle_join et handle_leave.
+        Diffuse une mise à jour de room à TOUS les clients authentifiés.
+        Permet à tous de voir qui est dans chaque room.
+        
+        Args:
+            room_name: Le nom du salon
+            user: L'utilisateur concerné
+            action: "join" ou "leave"
         """
+        # Format: [room_name][user][action]
+        payload = pack_string(room_name) + pack_string(user) + pack_string(action)
+        msg = pack_message(ROOM_UPDATE, payload)
+        
+        # Envoyer à tous les clients authentifiés
+        with self.lock:
+            for pseudo, client in self.clients.items():
+                if client.is_authenticated():
+                    try:
+                        client.sock.send(msg)
+                    except:
+                        pass
+    
+    def _remove_client_from_room(self, client: ClientContext, reason: str = "s'est déconnecté"):
+        """
+        Retire un client de son salon actuel et notifie les autres.
+        Méthode interne utilisée par handle_join, handle_leave et déconnexion.
+        
+        Args:
+            client: Le client à retirer
+            reason: La raison (par défaut "s'est déconnecté")
+        """
+        room_name = client.room
         
         with self.lock:
-            if client.room and client.room in self.rooms:
+            if room_name and room_name in self.rooms:
                 # Retirer le pseudo du salon
-                self.rooms[client.room].discard(client.pseudo)
+                self.rooms[room_name].discard(client.pseudo)
                 
                 # Supprimer le salon s'il est vide (optionnel, mais propre)
-                if len(self.rooms[client.room]) == 0:
-                    del self.rooms[client.room]
+                if len(self.rooms[room_name]) == 0:
+                    del self.rooms[room_name]
+        
+        # Notifier les autres membres du room dans le chat
+        if room_name and client.pseudo:
+            self._broadcast_to_room(room_name, "Serveur", f"{client.pseudo} {reason}")
+            # Notifier TOUS les clients pour la liste globale
+            self._broadcast_room_update(room_name, client.pseudo, "leave")
         
         # Mettre à jour l'état du client
         client.room = None
         client.state = STATE_AUTHENTICATED  # Transition: DANS_SALON → AUTHENTIFIÉ
+
+    def get_clients_info(self) -> list:
+        """
+        Retourne les informations de tous les clients connectés.
+        Utilisé par le dashboard admin.
+        
+        Returns:
+            list: Liste de dictionnaires contenant les infos clients
+        """
+        clients_info = []
+        with self.lock:
+            for pseudo, client in self.clients.items():
+                info = {
+                    'pseudo': pseudo,
+                    'room': client.room or '-',
+                    'last_message': client.last_message_time.strftime('%H:%M:%S') if client.last_message_time else '-'
+                }
+                clients_info.append(info)
+        return clients_info
+
+    def kick_client(self, pseudo: str) -> bool:
+        """
+        Kick un client du serveur.
+        
+        Args:
+            pseudo: Le pseudo du client à kicker
+            
+        Returns:
+            bool: True si le client a été kické, False sinon
+        """
+        with self.lock:
+            if pseudo not in self.clients:
+                return False
+            
+            client = self.clients[pseudo]
+            room = client.room
+        
+        # Broadcaster le message de kick et retirer du room
+        if room:
+            self._remove_client_from_room(client, "a été kické")
+        
+        # Fermer la socket du client (ce qui va déclencher la déconnexion)
+        try:
+            client.sock.close()
+        except:
+            pass
+        
+        # Retirer le client de la liste
+        with self.lock:
+            if pseudo in self.clients:
+                del self.clients[pseudo]
+        
+        return True
 
 
     def handle_file_offer(self, client: ClientContext, payload: bytes):
@@ -267,7 +370,11 @@ class ChatServer:
         try:
             while True:
                 # Lecture de l'en-tête
-                header = sock.recv(5)
+                try:
+                    header = sock.recv(5)
+                except OSError:
+                    # Socket fermée (par exemple après un kick)
+                    break
                 if not header:
                     break
 
