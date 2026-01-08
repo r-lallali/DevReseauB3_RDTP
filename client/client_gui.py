@@ -19,19 +19,16 @@ from common.protocol import *
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5555
 
-# Couleurs style TeamSpeak 3 (thème clair comme l'original)
+# Couleurs style TeamSpeak 3 (thème blanc et bleu)
 TS_BG_WHITE = "#ffffff"
 TS_BG_GRAY = "#f0f0f0"
 TS_BG_LIGHT = "#e8e8e8"
 TS_BORDER = "#acacac"
-TS_HEADER_BG = "#d4d4d4"
 TS_TEXT_BLACK = "#000000"
 TS_TEXT_GRAY = "#666666"
-TS_BLUE = "#0066cc"
-TS_GREEN = "#008000"
+TS_BLUE = "#0078d4"
+TS_BLUE_LIGHT = "#4da6ff"
 TS_RED = "#cc0000"
-TS_ORANGE = "#ff6600"
-TS_YELLOW = "#999900"
 
 
 class ChatClient:
@@ -39,18 +36,18 @@ class ChatClient:
         self.page = page
         self.sock = None
         self.pseudo = None
-        self.server_name = "RDTP Server"
+        self.server_ip = SERVER_IP
+        self.server_port = SERVER_PORT
         self.current_room = None
         self.connected = False
         self.users_in_room = set()
-        self.all_users = set()  # Tous les utilisateurs du serveur
-        self.channels = {}  # nom_channel -> set(users)
         self._pending_room = None
+        self.custom_channel_name = None  # Le channel custom créé par l'utilisateur
         
         # Configuration de la page
         self.page.title = "TeamSpeak 3"
-        self.page.window.width = 850
-        self.page.window.height = 600
+        self.page.window.width = 800
+        self.page.window.height = 550
         self.page.bgcolor = TS_BG_GRAY
         self.page.theme_mode = ft.ThemeMode.LIGHT
         self.page.padding = 0
@@ -70,7 +67,7 @@ class ChatClient:
             color=TS_TEXT_BLACK,
             label_style=ft.TextStyle(color=TS_TEXT_GRAY),
             width=280,
-            height=45,
+            height=50,
         )
         
         self.dialog_server = ft.TextField(
@@ -82,7 +79,7 @@ class ChatClient:
             color=TS_TEXT_BLACK,
             label_style=ft.TextStyle(color=TS_TEXT_GRAY),
             width=200,
-            height=45,
+            height=50,
         )
         
         self.dialog_port = ft.TextField(
@@ -94,7 +91,7 @@ class ChatClient:
             color=TS_TEXT_BLACK,
             label_style=ft.TextStyle(color=TS_TEXT_GRAY),
             width=70,
-            height=45,
+            height=50,
         )
         
         self.dialog_error = ft.Text("", color=TS_RED, size=12)
@@ -102,7 +99,7 @@ class ChatClient:
         self.connect_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Row([
-                ft.Icon(ft.icons.CONNECT_WITHOUT_CONTACT, color=TS_BLUE, size=24),
+                ft.Icon(ft.icons.DNS, color=TS_BLUE, size=24),
                 ft.Text("Connect to Server", color=TS_TEXT_BLACK, weight=ft.FontWeight.BOLD, size=16),
             ], spacing=10),
             bgcolor=TS_BG_GRAY,
@@ -163,8 +160,8 @@ class ChatClient:
             if msg_type == LOGIN_OK:
                 self.pseudo = pseudo
                 self.connected = True
-                self.server_name = f"RDTP Server ({ip}:{port})"
-                self.all_users.add(pseudo)
+                self.server_ip = ip
+                self.server_port = port
                 
                 # Fermer le dialog et afficher l'UI principale
                 self.connect_dialog.open = False
@@ -175,7 +172,7 @@ class ChatClient:
                 # Lancer le thread de réception
                 threading.Thread(target=self.receive_loop, daemon=True).start()
                 
-                self.log_message(f'"{pseudo}" connected', TS_GREEN)
+                self.log_message(f'"{pseudo}" connected', TS_BLUE)
             else:
                 payload = self.sock.recv(length)
                 self.dialog_error.value = unpack_string(payload)
@@ -193,43 +190,125 @@ class ChatClient:
         """Configure l'interface principale style TeamSpeak 3."""
         
         # ============ TOOLBAR ============
+        self.mic_btn = self._toolbar_icon(ft.icons.MIC, color=TS_BLUE, tooltip="Mute Microphone", on_click=self.toggle_mic)
+        self.sound_btn = self._toolbar_icon(ft.icons.HEADSET, color=TS_BLUE, tooltip="Mute Sound", on_click=self.toggle_sound)
+        self.mic_muted = False
+        self.sound_muted = False
+        
         toolbar = ft.Container(
             content=ft.Row([
-                self._toolbar_icon(ft.icons.BOOKMARK),
-                self._toolbar_icon(ft.icons.BOOKMARK_BORDER),
+                self.mic_btn,
+                self.sound_btn,
                 ft.VerticalDivider(width=1, color=TS_BORDER),
-                self._toolbar_icon(ft.icons.ARROW_BACK),
-                self._toolbar_icon(ft.icons.ARROW_FORWARD),
-                self._toolbar_icon(ft.icons.HOME),
-                ft.VerticalDivider(width=1, color=TS_BORDER),
-                self._toolbar_icon(ft.icons.MIC, color=TS_GREEN),
-                self._toolbar_icon(ft.icons.HEADSET, color=TS_GREEN),
-                ft.VerticalDivider(width=1, color=TS_BORDER),
-                self._toolbar_icon(ft.icons.SETTINGS),
-                ft.Container(expand=True),
-                self._toolbar_icon(ft.icons.HELP_OUTLINE),
+                self._toolbar_icon(ft.icons.LOGOUT, color=TS_RED, tooltip="Leave Channel", on_click=self.leave_channel),
             ], spacing=2),
             bgcolor=TS_BG_LIGHT,
             padding=5,
             border=ft.border.only(bottom=ft.BorderSide(1, TS_BORDER)),
         )
         
-        # ============ PANNEAU GAUCHE - Arborescence serveur & utilisateurs ============
+        # ============ PANNEAU GAUCHE - Arborescence serveur ============
         
-        # Header "Server Rules"
-        server_rules_header = ft.Container(
-            content=ft.Text("Server Rules", color=TS_TEXT_GRAY, size=11),
-            padding=ft.padding.only(left=10, top=5, bottom=5),
-            bgcolor=TS_BG_LIGHT,
+        # Serveur (IP)
+        server_row = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.DNS, color=TS_BLUE, size=16),
+                ft.Text(f"{self.server_ip}:{self.server_port}", color=TS_TEXT_BLACK, size=12, weight=ft.FontWeight.BOLD),
+            ], spacing=8),
+            padding=ft.padding.only(left=5, top=8, bottom=8),
         )
         
-        # Arborescence du serveur
-        self.server_tree = ft.Column(spacing=0)
-        self._build_server_tree()
+        # Default Channel
+        self.default_channel_row = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.LOCK_OPEN, color=TS_BLUE, size=14),
+                ft.Text("Default Channel", color=TS_TEXT_BLACK, size=12),
+            ], spacing=8),
+            padding=ft.padding.only(left=25, top=5, bottom=5),
+            bgcolor=None,
+            border_radius=3,
+            on_click=lambda e: self.join_channel("Default Channel"),
+        )
+        
+        # Utilisateurs du Default Channel
+        self.default_users_list = ft.Column(spacing=0)
+        
+        # Séparateur
+        separator = ft.Container(
+            content=ft.Divider(color=TS_BORDER, height=1),
+            padding=ft.padding.only(left=20, right=10, top=10, bottom=5),
+        )
+        
+        # Custom Channel - Header
+        custom_header = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.FOLDER, color=TS_BLUE, size=14),
+                ft.Text("Custom Channel", color=TS_TEXT_GRAY, size=11, italic=True),
+            ], spacing=8),
+            padding=ft.padding.only(left=25, top=5, bottom=5),
+        )
+        
+        # Custom Channel - Mon channel (si créé)
+        self.custom_channel_row = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.LOCK, color=TS_BLUE, size=14),
+                ft.Text("", color=TS_TEXT_BLACK, size=12),
+            ], spacing=8),
+            padding=ft.padding.only(left=40, top=5, bottom=5),
+            bgcolor=None,
+            border_radius=3,
+            visible=False,
+            on_click=lambda e: self.join_channel(self.custom_channel_name) if self.custom_channel_name else None,
+        )
+        
+        # Utilisateurs du Custom Channel
+        self.custom_users_list = ft.Column(spacing=0)
+        
+        # Input pour créer/rejoindre un custom channel
+        self.custom_input = ft.TextField(
+            hint_text="Channel name...",
+            hint_style=ft.TextStyle(color=TS_TEXT_GRAY, size=10),
+            bgcolor=TS_BG_WHITE,
+            border_color=TS_BORDER,
+            focused_border_color=TS_BLUE,
+            color=TS_TEXT_BLACK,
+            height=32,
+            text_size=11,
+            content_padding=ft.padding.only(left=8, right=8),
+            on_submit=self.join_custom_channel,
+            expand=True,
+        )
+        
+        self.join_custom_btn = ft.ElevatedButton(
+            "Join",
+            bgcolor=TS_BLUE,
+            color="white",
+            height=32,
+            on_click=self.join_custom_channel,
+        )
+        
+        custom_input_row = ft.Container(
+            content=ft.Row([
+                self.custom_input,
+                self.join_custom_btn,
+            ], spacing=5),
+            padding=ft.padding.only(left=20, right=5, top=10),
+        )
+        
+        # Assemblage panneau gauche
+        self.server_tree = ft.Column([
+            server_row,
+            self.default_channel_row,
+            self.default_users_list,
+            separator,
+            custom_header,
+            self.custom_channel_row,
+            self.custom_users_list,
+            custom_input_row,
+        ], spacing=0)
         
         left_panel = ft.Container(
             content=ft.Column([
-                server_rules_header,
                 ft.Container(
                     content=self.server_tree,
                     bgcolor=TS_BG_WHITE,
@@ -242,62 +321,27 @@ class ChatClient:
             border=ft.border.all(1, TS_BORDER),
         )
         
-        # ============ PANNEAU DROIT - Infos serveur ============
+        # ============ PANNEAU DROIT - Infos ============
         
-        # Logo TeamSpeak
-        ts_logo = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Text("team", color=TS_TEXT_BLACK, size=20, weight=ft.FontWeight.BOLD),
-                    ft.Text("speak", color=TS_BLUE, size=20, weight=ft.FontWeight.BOLD),
-                ], spacing=0),
-                ft.Text("COMMUNICATION SYSTEM", color=TS_TEXT_GRAY, size=8),
-            ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.START),
-            padding=10,
-        )
+        # Infos utilisateur
+        self.info_nickname = ft.Text(self.pseudo, color=TS_TEXT_BLACK, size=13, weight=ft.FontWeight.BOLD)
+        self.info_channel = ft.Text("No channel", color=TS_TEXT_BLACK, size=12)
+        self.info_users = ft.Text("0", color=TS_TEXT_BLACK, size=12)
         
-        # Infos du serveur
-        self.info_name = ft.Text(self.server_name, color=TS_TEXT_BLACK, size=12)
-        self.info_address = ft.Text(f"{SERVER_IP}:{SERVER_PORT}", color=TS_TEXT_BLACK, size=12)
-        self.info_clients = ft.Text("1 / 100", color=TS_TEXT_BLACK, size=12)
-        self.info_channels = ft.Text("0", color=TS_TEXT_BLACK, size=12)
-        self.info_uptime = ft.Text("0 hours, 0 minutes", color=TS_TEXT_BLACK, size=12)
-        
-        info_grid = ft.Column([
-            self._info_row("Name:", self.info_name),
-            self._info_row("Address:", self.info_address),
-            self._info_row("Current Channels:", self.info_channels),
-            self._info_row("Current Clients:", self.info_clients),
-            self._info_row("Uptime:", self.info_uptime),
-            ft.Container(height=10),
-            ft.TextButton("Refresh", on_click=self.refresh_info),
-        ], spacing=5)
-        
-        # Slogan
-        slogan = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Text("When a ", color=TS_TEXT_GRAY, size=11),
-                    ft.Text("word", color=TS_RED, size=14, weight=ft.FontWeight.BOLD),
-                    ft.Text(" is worth a", color=TS_TEXT_GRAY, size=11),
-                ], spacing=2),
-                ft.Row([
-                    ft.Text("thousand ", color=TS_TEXT_GRAY, size=11),
-                    ft.Text("keystrokes...", color=TS_BLUE, size=14, weight=ft.FontWeight.BOLD, italic=True),
-                ], spacing=2),
-            ], spacing=0),
-            padding=10,
-        )
+        info_section = ft.Column([
+            self._info_row("Nickname:", self.info_nickname),
+            self._info_row("Channel:", self.info_channel),
+            self._info_row("Users in channel:", self.info_users),
+        ], spacing=8)
         
         right_panel = ft.Container(
             content=ft.Column([
-                ft.Row([ts_logo, ft.Container(expand=True), slogan]),
-                ft.Divider(color=TS_BORDER, height=1),
-                ft.Container(content=info_grid, padding=15, expand=True),
+                info_section,
             ], spacing=0),
             expand=True,
             bgcolor=TS_BG_WHITE,
             border=ft.border.all(1, TS_BORDER),
+            padding=15,
         )
         
         # ============ PANNEAU BAS - Chat/Logs ============
@@ -305,8 +349,8 @@ class ChatClient:
         # Onglets
         self.tab_server = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.DNS, color=TS_GREEN, size=14),
-                ft.Text(f"RDTP Server", color=TS_TEXT_BLACK, size=11),
+                ft.Icon(ft.icons.DNS, color=TS_BLUE, size=14),
+                ft.Text(f"{self.server_ip}", color=TS_TEXT_BLACK, size=11),
             ], spacing=5),
             bgcolor=TS_BG_WHITE,
             padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
@@ -316,12 +360,11 @@ class ChatClient:
         
         self.tab_channel = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.TAG, color=TS_YELLOW, size=14),
+                ft.Icon(ft.icons.TAG, color=TS_BLUE, size=14),
                 ft.Text("No channel", color=TS_TEXT_BLACK, size=11),
-                ft.IconButton(ft.icons.CLOSE, icon_size=12, icon_color=TS_TEXT_GRAY),
             ], spacing=5),
             bgcolor=TS_BG_LIGHT,
-            padding=ft.padding.only(left=10, right=5, top=5, bottom=5),
+            padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
             border_radius=ft.border_radius.only(top_left=5, top_right=5),
             visible=False,
         )
@@ -338,7 +381,8 @@ class ChatClient:
         
         # Input message
         self.chat_input = ft.TextField(
-            hint_text="",
+            hint_text="Enter Chat Message...",
+            hint_style=ft.TextStyle(color=TS_TEXT_GRAY),
             bgcolor=TS_BG_WHITE,
             border_color=TS_BORDER,
             focused_border_color=TS_BLUE,
@@ -348,10 +392,6 @@ class ChatClient:
             text_size=12,
             content_padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
             on_submit=self.send_message,
-            prefix=ft.Container(
-                content=ft.Text("A", color=TS_TEXT_BLACK, size=14, weight=ft.FontWeight.BOLD),
-                padding=ft.padding.only(right=10),
-            ),
         )
         
         bottom_panel = ft.Container(
@@ -368,7 +408,7 @@ class ChatClient:
                     padding=5,
                 ),
             ], spacing=0),
-            height=200,
+            height=180,
             bgcolor=TS_BG_GRAY,
         )
         
@@ -384,7 +424,6 @@ class ChatClient:
         )
         
         # ============ ASSEMBLAGE FINAL ============
-        # Zone haute : gauche + droite
         top_area = ft.Row([
             left_panel,
             right_panel,
@@ -408,180 +447,145 @@ class ChatClient:
             )
         )
     
-    def _toolbar_icon(self, icon, color=None):
+    def _info_row(self, label: str, value_widget):
+        """Crée une ligne d'info."""
+        return ft.Row([
+            ft.Text(label, color=TS_TEXT_GRAY, size=12, width=110),
+            value_widget,
+        ], spacing=5)
+    
+    def _toolbar_icon(self, icon, color=None, tooltip=None, on_click=None):
         """Crée une icône de toolbar."""
         return ft.IconButton(
             icon=icon,
             icon_color=color or TS_TEXT_GRAY,
             icon_size=18,
+            tooltip=tooltip,
+            on_click=on_click,
             style=ft.ButtonStyle(
                 padding=5,
                 shape=ft.RoundedRectangleBorder(radius=2),
             ),
         )
     
-    def _info_row(self, label: str, value_widget):
-        """Crée une ligne d'info."""
-        return ft.Row([
-            ft.Text(label, color=TS_TEXT_GRAY, size=12, weight=ft.FontWeight.BOLD, width=120),
-            value_widget,
-        ], spacing=10)
-    
-    def _build_server_tree(self):
-        """Construit l'arborescence du serveur."""
-        self.server_tree.controls.clear()
-        
-        # Icône serveur avec nom
-        server_row = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.DNS, color=TS_GREEN, size=16),
-                ft.Text(self.server_name, color=TS_TEXT_BLACK, size=12, weight=ft.FontWeight.BOLD),
-                ft.Icon(ft.icons.HOME, color=TS_BLUE, size=12),
-                ft.Icon(ft.icons.LOCK_OPEN, color=TS_GREEN, size=12),
-            ], spacing=5),
-            padding=ft.padding.only(left=5, top=3, bottom=3),
-            on_click=lambda e: None,
-        )
-        self.server_tree.controls.append(server_row)
-        
-        # Canaux par défaut
-        default_channels = ["Lobby", "General", "Gaming", "Music", "AFK"]
-        for ch in default_channels:
-            self._add_channel_to_tree(ch)
-        
-        # Input nouveau channel
-        new_channel_row = ft.Container(
-            content=ft.Row([
-                ft.Container(width=20),
-                ft.TextField(
-                    hint_text="+ New channel...",
-                    hint_style=ft.TextStyle(color=TS_TEXT_GRAY, size=11),
-                    bgcolor="transparent",
-                    border_color="transparent",
-                    focused_border_color=TS_BLUE,
-                    color=TS_TEXT_BLACK,
-                    height=25,
-                    text_size=11,
-                    content_padding=ft.padding.only(left=5),
-                    on_submit=self.create_channel,
-                    expand=True,
-                ),
-            ], spacing=0),
-            padding=ft.padding.only(left=10),
-        )
-        self.server_tree.controls.append(new_channel_row)
-        
+    def toggle_mic(self, e):
+        """Active/désactive le micro."""
+        self.mic_muted = not self.mic_muted
+        self.mic_btn.icon = ft.icons.MIC_OFF if self.mic_muted else ft.icons.MIC
+        self.mic_btn.icon_color = TS_RED if self.mic_muted else TS_BLUE
+        self.log_message("Microphone " + ("muted" if self.mic_muted else "unmuted"), TS_BLUE if self.mic_muted else TS_BLUE)
         self.page.update()
     
-    def _add_channel_to_tree(self, name: str):
-        """Ajoute un canal à l'arborescence."""
-        is_current = name == self.current_room
-        
-        # Container du channel
-        channel_container = ft.Container(
-            content=ft.Column([
-                # Ligne du channel
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(
-                            ft.icons.VOLUME_UP if is_current else ft.icons.FOLDER_OPEN,
-                            color=TS_YELLOW if is_current else TS_TEXT_GRAY,
-                            size=14
-                        ),
-                        ft.Text(
-                            name,
-                            color=TS_TEXT_BLACK,
-                            size=12,
-                            weight=ft.FontWeight.BOLD if is_current else None
-                        ),
-                        ft.Text(
-                            "(Channel is moderated)" if name == "Lobby" else "",
-                            color=TS_TEXT_GRAY,
-                            size=10,
-                            italic=True
-                        ),
-                    ], spacing=5),
-                    padding=ft.padding.only(left=20, top=2, bottom=2),
-                    bgcolor=TS_BG_LIGHT if is_current else None,
-                    border_radius=3,
-                    on_click=lambda e, n=name: self.join_channel(n),
-                ),
-            ], spacing=0),
-            data=name,
-        )
-        
-        # Si c'est le channel actuel, afficher les utilisateurs
-        if is_current and self.current_room:
-            users_col = channel_container.content
-            for user in sorted(self.users_in_room):
-                is_me = user == self.pseudo
-                user_row = ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.icons.CIRCLE, color=TS_GREEN, size=8),
-                        ft.Text(
-                            user,
-                            color=TS_GREEN if is_me else TS_TEXT_BLACK,
-                            size=11,
-                            weight=ft.FontWeight.BOLD if is_me else None,
-                        ),
-                    ], spacing=5),
-                    padding=ft.padding.only(left=40, top=1, bottom=1),
-                )
-                users_col.controls.append(user_row)
-        
-        # Insérer avant le "new channel" input
-        insert_pos = len(self.server_tree.controls) - 1
-        self.server_tree.controls.insert(insert_pos, channel_container)
-    
-    def _refresh_tree(self):
-        """Rafraîchit l'arborescence."""
-        # Sauvegarder le new channel input
-        new_channel_input = self.server_tree.controls[-1]
-        
-        # Reconstruire
-        self.server_tree.controls.clear()
-        
-        # Server header
-        server_row = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.DNS, color=TS_GREEN, size=16),
-                ft.Text(self.server_name, color=TS_TEXT_BLACK, size=12, weight=ft.FontWeight.BOLD),
-                ft.Icon(ft.icons.HOME, color=TS_BLUE, size=12),
-            ], spacing=5),
-            padding=ft.padding.only(left=5, top=3, bottom=3),
-        )
-        self.server_tree.controls.append(server_row)
-        
-        # Channels
-        default_channels = ["Lobby", "General", "Gaming", "Music", "AFK"]
-        for ch in default_channels:
-            self._add_channel_to_tree(ch)
-        
-        # Remettre le new channel input
-        self.server_tree.controls.append(new_channel_input)
-        
+    def toggle_sound(self, e):
+        """Active/désactive le son."""
+        self.sound_muted = not self.sound_muted
+        self.sound_btn.icon = ft.icons.HEADSET_OFF if self.sound_muted else ft.icons.HEADSET
+        self.sound_btn.icon_color = TS_RED if self.sound_muted else TS_BLUE
+        self.log_message("Sound " + ("muted" if self.sound_muted else "unmuted"), TS_BLUE if self.sound_muted else TS_BLUE)
         self.page.update()
     
-    def create_channel(self, e):
-        """Crée un nouveau canal."""
-        name = e.control.value.strip()
-        if not name:
+    def leave_channel(self, e):
+        """Quitte le channel actuel."""
+        if not self.current_room:
+            self.log_message("You are not in a channel", TS_RED)
             return
         
-        e.control.value = ""
-        self._add_channel_to_tree(name)
-        self.page.update()
+        self.sock.send(pack_message(LEAVE))
+        old_room = self.current_room
         
-        # Rejoindre automatiquement
-        self.join_channel(name)
+        # Si c'était un custom channel, on le supprime de l'affichage
+        if old_room != "Default Channel" and old_room == self.custom_channel_name:
+            self.custom_channel_name = None
+            self.custom_channel_row.visible = False
+        
+        self.current_room = None
+        self.users_in_room.clear()
+        self.tab_channel.visible = False
+        self._refresh_ui()
+        self.log_message(f'Left channel "{old_room}"', TS_BLUE)
+    
+    def _add_user_to_list(self, user: str, target_list: ft.Column):
+        """Ajoute un utilisateur à une liste."""
+        is_me = user == self.pseudo
+        user_row = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.PERSON, color=TS_BLUE, size=12),
+                ft.Text(
+                    user,
+                    color=TS_BLUE if is_me else TS_TEXT_BLACK,
+                    size=11,
+                    weight=ft.FontWeight.BOLD if is_me else None,
+                ),
+            ], spacing=5),
+            padding=ft.padding.only(left=45, top=2, bottom=2),
+        )
+        target_list.controls.append(user_row)
+    
+    def _refresh_ui(self):
+        """Rafraîchit l'affichage."""
+        # Effacer les listes d'utilisateurs
+        self.default_users_list.controls.clear()
+        self.custom_users_list.controls.clear()
+        
+        # Mettre à jour les styles des channels
+        is_default = self.current_room == "Default Channel"
+        is_custom = self.current_room == self.custom_channel_name and self.custom_channel_name is not None
+        
+        # Default Channel
+        self.default_channel_row.bgcolor = TS_BG_LIGHT if is_default else None
+        self.default_channel_row.content.controls[0].color = TS_BLUE if is_default else TS_BLUE
+        
+        # Afficher les users dans le bon channel
+        if is_default:
+            for user in sorted(self.users_in_room):
+                self._add_user_to_list(user, self.default_users_list)
+        elif is_custom:
+            for user in sorted(self.users_in_room):
+                self._add_user_to_list(user, self.custom_users_list)
+        
+        # Custom Channel
+        if self.custom_channel_name:
+            self.custom_channel_row.visible = True
+            self.custom_channel_row.content.controls[1].value = self.custom_channel_name
+            self.custom_channel_row.bgcolor = TS_BG_LIGHT if is_custom else None
+            self.custom_channel_row.content.controls[0].color = TS_BLUE if is_custom else TS_BLUE
+        else:
+            self.custom_channel_row.visible = False
+        
+        # Infos
+        self.info_channel.value = self.current_room or "No channel"
+        self.info_users.value = str(len(self.users_in_room))
+        
+        # Onglet channel
+        if self.current_room:
+            self.tab_channel.visible = True
+            self.tab_channel.content.controls[1].value = self.current_room
+        
+        self.page.update()
     
     def join_channel(self, name: str):
         """Rejoint un canal."""
         if not self.connected or name == self.current_room:
             return
         
+        # Si on quitte un custom channel pour aller ailleurs, on le supprime de l'affichage
+        if self.current_room and self.current_room != "Default Channel" and self.current_room == self.custom_channel_name:
+            self.custom_channel_name = None
+            self.custom_channel_row.visible = False
+            self.page.update()
+        
         self._pending_room = name
         self.sock.send(pack_message(JOIN, pack_string(name)))
+    
+    def join_custom_channel(self, e):
+        """Rejoint ou crée un custom channel."""
+        name = self.custom_input.value.strip()
+        if not name or not self.connected:
+            return
+        
+        self.custom_channel_name = name
+        self.custom_input.value = ""
+        self.join_channel(name)
     
     def send_message(self, e):
         """Envoie un message."""
@@ -591,6 +595,8 @@ class ChatClient:
         
         if self.current_room:
             self.sock.send(pack_message(MSG, pack_string(msg)))
+        else:
+            self.log_message("Join a channel first!", TS_RED)
         
         self.chat_input.value = ""
         self.page.update()
@@ -614,17 +620,11 @@ class ChatClient:
         
         msg = ft.Row([
             ft.Text(f"<{now}>", color=TS_TEXT_GRAY, size=11),
-            ft.Text(f"<{pseudo}>", color=TS_BLUE if is_me else TS_GREEN, size=11, weight=ft.FontWeight.BOLD),
+            ft.Text(f"<{pseudo}>", color=TS_BLUE if is_me else TS_BLUE, size=11, weight=ft.FontWeight.BOLD),
             ft.Text(text, color=TS_TEXT_BLACK, size=11),
         ], spacing=5)
         
         self.chat_list.controls.append(msg)
-        self.page.update()
-    
-    def refresh_info(self, e=None):
-        """Rafraîchit les infos du serveur."""
-        self.info_clients.value = f"{len(self.all_users)} / 100"
-        self.info_channels.value = "5"
         self.page.update()
     
     def receive_loop(self):
@@ -646,9 +646,7 @@ class ChatClient:
                     # Ajouter l'utilisateur à la liste si nouveau
                     if pseudo not in self.users_in_room:
                         self.users_in_room.add(pseudo)
-                        self.all_users.add(pseudo)
-                        self._refresh_tree()
-                        self.refresh_info()
+                        self._refresh_ui()
                     
                     self.chat_message(pseudo, message)
                 
@@ -660,13 +658,8 @@ class ChatClient:
                     
                     self.users_in_room = {self.pseudo}
                     
-                    # Mettre à jour l'onglet du channel
-                    self.tab_channel.content.controls[1].value = room
-                    self.tab_channel.visible = True
-                    
-                    self._refresh_tree()
+                    self._refresh_ui()
                     self.log_message(f'Joined channel "{room}"', TS_BLUE)
-                    self.page.update()
                 
                 elif msg_type == ERROR:
                     code = payload[0]
