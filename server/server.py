@@ -192,14 +192,19 @@ class ChatServer:
         payload = pack_string(room_name) + pack_string(user) + pack_string(action)
         msg = pack_message(ROOM_UPDATE, payload)
         
-        # Envoyer à tous les clients authentifiés
+        # Collecter les sockets à notifier (avec le lock)
+        sockets_to_notify = []
         with self.lock:
             for pseudo, client in self.clients.items():
                 if client.is_authenticated():
-                    try:
-                        client.sock.send(msg)
-                    except:
-                        pass
+                    sockets_to_notify.append(client.sock)
+        
+        # Envoyer HORS du lock pour éviter le blocage
+        for sock in sockets_to_notify:
+            try:
+                sock.send(msg)
+            except:
+                pass
     
     def _remove_client_from_room(self, client: ClientContext, reason: str = "s'est déconnecté"):
         """
