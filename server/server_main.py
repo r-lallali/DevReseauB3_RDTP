@@ -10,6 +10,7 @@ Il ne contient pas de logique métier : celle-ci reste dans ChatServer.
 """
 
 import socket
+import threading
 # Ensure running the script directly can import package modules
 import sys
 import os
@@ -23,12 +24,17 @@ PORT = 5000        # port à utiliser pour les clients
 def main():
     """
     Initialise le serveur et accepte les connexions entrantes.
+    Chaque client est géré dans un thread séparé pour permettre
+    plusieurs connexions simultanées.
     """
 
     server = ChatServer()
 
     # Création de la socket TCP
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    # Permet de réutiliser l'adresse immédiatement après fermeture
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     try:
         # Liaison de la socket à l'adresse et au port
@@ -44,9 +50,14 @@ def main():
             client_sock, client_addr = sock.accept()
             print(f"Connexion de {client_addr}")
 
-            # Transmet le socket au serveur pour traitement
-            # Ici, le serveur est minimal et ne gère qu'un message
-            server.handle_client(client_sock)
+            # Créer un thread pour gérer ce client
+            # Cela permet d'accepter d'autres clients pendant que celui-ci est traité
+            client_thread = threading.Thread(
+                target=server.handle_client,
+                args=(client_sock,),
+                daemon=True  # Le thread se termine si le programme principal se termine
+            )
+            client_thread.start()
 
     finally:
         # Fermeture propre de la socket

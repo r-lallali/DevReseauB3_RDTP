@@ -1,4 +1,5 @@
 import socket
+import threading
 from common.protocol import *
 
 
@@ -23,6 +24,7 @@ class ClientContext:
 class ChatServer:
     """
     Serveur de chat gérant les connexions des clients.
+    Thread-safe : utilise un Lock pour protéger les structures partagées.
     """
 
     def __init__(self):
@@ -31,6 +33,10 @@ class ChatServer:
         # Dictionnaire des salons : nom_salon → set de pseudos
         # Exemple : {"général": {"Alice", "Bob"}, "dev": {"Charlie"}}
         self.rooms = {}
+        
+        # Lock pour protéger l'accès concurrent aux clients et aux salons
+        # Nécessaire car plusieurs threads (un par client) accèdent à ces structures
+        self.lock = threading.Lock()
     
     def handle_join(self, client: ClientContext, payload: bytes):
         """
@@ -58,12 +64,15 @@ class ChatServer:
         if client.room is not None:
             self._remove_client_from_room(client)
         
-        # Créer le salon s'il n'existe pas
-        if room_name not in self.rooms:
-            self.rooms[room_name] = set()
+        # Section critique : modification des structures partagées
+        with self.lock:
+            # Créer le salon s'il n'existe pas
+            if room_name not in self.rooms:
+                self.rooms[room_name] = set()
+            
+            # Ajouter le client au salon
+            self.rooms[room_name].add(client.pseudo)
         
-        # Ajouter le client au salon
-        self.rooms[room_name].add(client.pseudo)
         client.room = room_name
         client.state = STATE_IN_ROOM  # Transition: AUTHENTIFIÉ → DANS_SALON
         
@@ -129,16 +138,18 @@ class ChatServer:
             message: Le message à diffuser
         """
         
-        # Vérifier que le salon existe
-        if room_name not in self.rooms:
-            return
-        
         # Construire le payload MSG_BROADCAST : [pseudo][message]
         broadcast_payload = pack_string(sender_pseudo) + pack_string(message)
         broadcast_msg = pack_message(MSG_BROADCAST, broadcast_payload)
         
-        # Envoyer à chaque client du salon
-        for pseudo in self.rooms[room_name]:
+        # Copier la liste des destinataires sous lock pour éviter les modifications concurrentes
+        with self.lock:
+            if room_name not in self.rooms:
+                return
+            recipients = list(self.rooms[room_name])
+        
+        # Envoyer à chaque client du salon (hors du lock pour ne pas bloquer)
+        for pseudo in recipients:
             if pseudo in self.clients:
                 try:
                     self.clients[pseudo].sock.send(broadcast_msg)
@@ -152,13 +163,14 @@ class ChatServer:
         Méthode interne utilisée par handle_join et handle_leave.
         """
         
-        if client.room and client.room in self.rooms:
-            # Retirer le pseudo du salon
-            self.rooms[client.room].discard(client.pseudo)
-            
-            # Supprimer le salon s'il est vide (optionnel, mais propre)
-            if len(self.rooms[client.room]) == 0:
-                del self.rooms[client.room]
+        with self.lock:
+            if client.room and client.room in self.rooms:
+                # Retirer le pseudo du salon
+                self.rooms[client.room].discard(client.pseudo)
+                
+                # Supprimer le salon s'il est vide (optionnel, mais propre)
+                if len(self.rooms[client.room]) == 0:
+                    del self.rooms[client.room]
         
         # Mettre à jour l'état du client
         client.room = None
@@ -201,16 +213,18 @@ class ChatServer:
                         ))
                         break
 
-                    if pseudo in self.clients:
-                        sock.send(pack_message(
-                            LOGIN_ERR,
-                            pack_string("Pseudo déjà utilisé")
-                        ))
-                        break
+                    # Section critique : vérification et ajout du client
+                    with self.lock:
+                        if pseudo in self.clients:
+                            sock.send(pack_message(
+                                LOGIN_ERR,
+                                pack_string("Pseudo déjà utilisé")
+                            ))
+                            break
 
-                    client.pseudo = pseudo
-                    client.state = STATE_AUTHENTICATED
-                    self.clients[pseudo] = client
+                        client.pseudo = pseudo
+                        client.state = STATE_AUTHENTICATED
+                        self.clients[pseudo] = client
 
                     sock.send(pack_message(LOGIN_OK))
                     continue
@@ -240,7 +254,13 @@ class ChatServer:
 
         finally:
             # Nettoyage lors de la déconnexion
-            if client.pseudo in self.clients:
-                del self.clients[client.pseudo]
+            # Retirer le client du salon s'il y était
+            if client.is_in_room():
+                self._remove_client_from_room(client)
+            
+            # Retirer le client de la liste
+            with self.lock:
+                if client.pseudo and client.pseudo in self.clients:
+                    del self.clients[client.pseudo]
 
             sock.close()
