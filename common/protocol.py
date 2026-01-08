@@ -27,6 +27,8 @@ PONG = 0xF1
 
 # Constants
 MAX_PSEUDO_LEN = 32
+MAX_ROOM_LEN = 32
+MAX_MSG_LEN = 1024  # Taille max d'un message (voir PROTOCOL.md section 7)
 
 STATE_CONNECTED = "CONNECTÉ"        # Connexion TCP établie, en attente de LOGIN
 STATE_AUTHENTICATED = "AUTHENTIFIÉ"  # LOGIN réussi, peut faire JOIN

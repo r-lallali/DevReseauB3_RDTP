@@ -89,6 +89,63 @@ class ChatServer:
         # Pas de message de confirmation selon le protocole (LEAVE n'a pas de LEAVE_OK)
         # Le client sait qu'il a quitté car il a envoyé LEAVE
     
+    def handle_msg(self, client: ClientContext, payload: bytes):
+        """
+        Traite un message MSG d'un client et le diffuse au salon.
+        
+        Args:
+            client: Le contexte du client qui envoie le message
+            payload: Les données du message (contient le texte)
+        """
+        
+        # Vérifier que le client est dans un salon
+        if not client.is_in_room():
+            client.sock.send(pack_message(ERROR, bytes([0x03]) + pack_string("Pas dans un salon")))
+            return
+        
+        # Extraire le message
+        message = unpack_string(payload)
+        
+        # Vérifier que le message n'est pas vide
+        if not message:
+            client.sock.send(pack_message(ERROR, bytes([0x05]) + pack_string("Message vide")))
+            return
+        
+        # Vérifier la taille du message
+        if len(message) > MAX_MSG_LEN:
+            client.sock.send(pack_message(ERROR, bytes([0x05]) + pack_string("Message trop long")))
+            return
+        
+        # Diffuser le message à tous les clients du salon
+        self._broadcast_to_room(client.room, client.pseudo, message)
+    
+    def _broadcast_to_room(self, room_name: str, sender_pseudo: str, message: str):
+        """
+        Diffuse un message à tous les clients d'un salon.
+        
+        Args:
+            room_name: Le nom du salon
+            sender_pseudo: Le pseudo de l'expéditeur
+            message: Le message à diffuser
+        """
+        
+        # Vérifier que le salon existe
+        if room_name not in self.rooms:
+            return
+        
+        # Construire le payload MSG_BROADCAST : [pseudo][message]
+        broadcast_payload = pack_string(sender_pseudo) + pack_string(message)
+        broadcast_msg = pack_message(MSG_BROADCAST, broadcast_payload)
+        
+        # Envoyer à chaque client du salon
+        for pseudo in self.rooms[room_name]:
+            if pseudo in self.clients:
+                try:
+                    self.clients[pseudo].sock.send(broadcast_msg)
+                except:
+                    # Si l'envoi échoue, on ignore (le client sera nettoyé plus tard)
+                    pass
+    
     def _remove_client_from_room(self, client: ClientContext):
         """
         Retire un client de son salon actuel.
@@ -159,12 +216,27 @@ class ChatServer:
                     continue
 
                 # --------------------
-                # États suivants (non implémentés)
+                # États AUTHENTIFIÉ et DANS_SALON
                 # --------------------
-                sock.send(pack_message(
-                    GENERIC_ERR,
-                    pack_string("Action non supportée")
-                ))
+                if msg_type == JOIN:
+                    self.handle_join(client, payload)
+                
+                elif msg_type == LEAVE:
+                    self.handle_leave(client)
+                
+                elif msg_type == MSG:
+                    self.handle_msg(client, payload)
+                
+                elif msg_type == PONG:
+                    # Réponse au heartbeat, rien à faire pour l'instant
+                    pass
+                
+                else:
+                    # Message non reconnu
+                    sock.send(pack_message(
+                        ERROR,
+                        bytes([0x06]) + pack_string("Action non autorisée")
+                    ))
 
         finally:
             # Nettoyage lors de la déconnexion
