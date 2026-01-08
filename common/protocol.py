@@ -25,6 +25,13 @@ ROOM_UPDATE = 0x22  # Liste des membres d'un room
 ERROR = 0x30
 PING = 0xF0
 PONG = 0xF1
+FILE_OFFER = 0x40
+FILE_REQUEST = 0x41
+FILE_ACCEPT = 0x42
+FILE_REJECT = 0x43
+FILE_START = 0x44
+FILE_CANCEL = 0x45
+
 
 # Constants
 MAX_PSEUDO_LEN = 32
@@ -34,6 +41,7 @@ MAX_MSG_LEN = 1024  # Taille max d'un message (voir PROTOCOL.md section 7)
 STATE_CONNECTED = "CONNECTÉ"        # Connexion TCP établie, en attente de LOGIN
 STATE_AUTHENTICATED = "AUTHENTIFIÉ"  # LOGIN réussi, peut faire JOIN
 STATE_IN_ROOM = "DANS_SALON"         # Dans un salon, peut envoyer MSG ou LEAVE
+STATE_WAITING_FILE_CONFIRMATION = "ATTENTE_CONFIRMATION_FICHIER"  # Après FILE_OFFER, en attente de FILE_ACCEPT ou FILE_REJECT
 
 
 def pack_int(value: int) -> bytes:
