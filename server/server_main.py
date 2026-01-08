@@ -19,7 +19,7 @@ from server.server import ChatServer
 
 # Adresse et port d'écoute du serveur
 HOST = "0.0.0.0"  # toutes les interfaces
-PORT = 5555       # port à utiliser pour les clients (5000 est utilisé par macOS)
+PORT = 5002       # port à utiliser pour les clients (5000 est utilisé par macOS)
 
 def main():
     """
