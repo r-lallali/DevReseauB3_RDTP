@@ -55,6 +55,20 @@ def receive_messages(sock):
                 print(f"\n[Erreur {code}] {error_msg}")
                 print("> ", end="", flush=True)
             
+            elif msg_type == ROOM_UPDATE:
+                # Notification quand un user rejoint/quitte le salon
+                room_name = unpack_string(payload)
+                offset = 2 + len(room_name.encode('utf-8'))
+                user = unpack_string(payload[offset:])
+                offset += 2 + len(user.encode('utf-8'))
+                action = unpack_string(payload[offset:])
+                
+                if action == "join":
+                    print(f"\n[→ {user} a rejoint le salon]")
+                else:
+                    print(f"\n[← {user} a quitté le salon]")
+                print("> ", end="", flush=True)
+            
         except Exception as e:
             print(f"\n[Erreur de réception: {e}]")
             break

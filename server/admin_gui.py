@@ -30,6 +30,7 @@ class AdminDashboard:
         self.page = page
         self.chat_server = chat_server
         self.running = True
+        self._pending_kick_pseudo = None
         
         # Configuration de la page
         self.page.title = "Admin Dashboard - Chat Server"
@@ -40,16 +41,17 @@ class AdminDashboard:
         self.page.padding = 20
         
         self.setup_ui()
+        self._setup_kick_dialog()
         
         # Démarrer le rafraîchissement automatique
         threading.Thread(target=self.refresh_loop, daemon=True).start()
-    
+
     def setup_ui(self):
         """Configure l'interface du dashboard."""
         
         # Titre
         title = ft.Row([
-            ft.Icon(ft.Icons.ADMIN_PANEL_SETTINGS, color=ADMIN_ACCENT, size=28),
+            ft.Icon(ft.icons.ADMIN_PANEL_SETTINGS, color=ADMIN_ACCENT, size=28),
             ft.Text(
                 "Admin Dashboard",
                 size=24,
@@ -108,7 +110,7 @@ class AdminDashboard:
         # Message si aucun client
         self.no_clients_msg = ft.Container(
             content=ft.Column([
-                ft.Icon(ft.Icons.PERSON_OFF, color=ADMIN_TEXT_DIM, size=48),
+                ft.Icon(ft.icons.PERSON_OFF, color=ADMIN_TEXT_DIM, size=48),
                 ft.Text("Aucun client connecté", color=ADMIN_TEXT_DIM, size=16),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=10),
             expand=True,
@@ -126,6 +128,41 @@ class AdminDashboard:
                 ], expand=True),
             ], expand=True)
         )
+
+    def _setup_kick_dialog(self):
+        """Configure le dialog de confirmation pour le kick."""
+        self.kick_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Confirm kick"),
+            content=ft.Text(""),
+            actions=[
+                ft.TextButton("Cancel", on_click=self._cancel_kick),
+                ft.ElevatedButton("Kick", on_click=self._confirm_kick, bgcolor=ADMIN_RED, color="white"),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.dialog = self.kick_dialog
+
+    def _show_kick_dialog(self, pseudo: str):
+        """Ouvre le dialog de confirmation pour le pseudo demandé."""
+        self._pending_kick_pseudo = pseudo
+        self.kick_dialog.content.value = f"Kick {pseudo} from the server?"
+        self.kick_dialog.open = True
+        self.page.update()
+
+    def _cancel_kick(self, e):
+        """Annule la demande de kick."""
+        self._pending_kick_pseudo = None
+        self.kick_dialog.open = False
+        self.page.update()
+
+    def _confirm_kick(self, e):
+        """Confirme et exécute le kick."""
+        if self._pending_kick_pseudo:
+            self.kick_user(self._pending_kick_pseudo)
+        self._pending_kick_pseudo = None
+        self.kick_dialog.open = False
+        self.page.update()
     
     def kick_user(self, pseudo: str):
         """Kick un utilisateur directement (sans confirmation)."""
@@ -160,11 +197,11 @@ class AdminDashboard:
         for client in clients:
             pseudo = client['pseudo']
             kick_btn = ft.IconButton(
-                icon=ft.Icons.BLOCK,
+                icon=ft.icons.BLOCK,
                 icon_color=ADMIN_RED,
                 icon_size=18,
                 tooltip=f"Kicker {pseudo}",
-                on_click=lambda e, p=pseudo: self.kick_user(p),
+                on_click=lambda e, p=pseudo: self._show_kick_dialog(p),
             )
             
             row = ft.DataRow(
@@ -189,4 +226,3 @@ def run_admin_dashboard(chat_server):
         AdminDashboard(page, chat_server)
     
     ft.app(target=main)
-
